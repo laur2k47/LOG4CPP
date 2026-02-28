@@ -1,0 +1,48 @@
+# Build artifacts
+build/
+*.o
+*.a
+*.so
+*.so.1
+*.dylib
+*.dll
+
+# Temporary files
+*~
+*.swp
+*.swo
+*.tmp
+
+# IDE and editor files
+.vscode/
+.idea/
+*.project
+*.cproject
+.settings/
+*.sublime-workspace
+
+# CMake
+CMakeFiles/
+cmake_install.cmake
+CMakeCache.txt
+
+# Executables
+test_c_static
+test_c_dynamic
+test_cpp_static
+test_cpp_dynamic
+test_multi
+
+# System files
+.DS_Store
+Thumbs.db
+
+# Dependencies
+.depend
+*.d
+
+# Documentation build artifacts
+docs/_build/
+
+# Test output
+/tmp/log_output.txt
