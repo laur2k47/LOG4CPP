@@ -7,6 +7,7 @@ echo "Building all tests..."
 echo "================================"
 ./build_tests.sh
 g++ -std=c++14 -O2 -I../Includes test_multiple_handlers.cpp -o build/test_multi -L../lib -llog4cpp 2>/dev/null
+g++ -std=c++14 -O2 -I../Includes test_rotation.cpp -o build/test_rotation -L../lib -llog4cpp 2>/dev/null
 
 export LD_LIBRARY_PATH=../lib:$LD_LIBRARY_PATH
 
@@ -41,4 +42,9 @@ echo "================================"
 ./build/test_multi
 
 echo ""
-echo "✓ All tests completed!"
+echo "================================"
+echo "6. File Rotation Test"
+echo "================================"
+./build/test_rotation
+
+echo ""

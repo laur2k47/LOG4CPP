@@ -1,0 +1,2 @@
+[2026-02-28 22:24:07.981350][INFO  ][RotationTest][main:26] Message 199 - This is a test message with some padding to increase file size. Lorem ipsum dolor sit amet consectetur adipiscing elit sed do eiusmod tempor incididunt ut labore et dolore magna aliqua
+[2026-02-28 22:24:07.987330][INFO  ][RotationTest][main:26] Message 200 - This is a test message with some padding to increase file size. Lorem ipsum dolor sit amet consectetur adipiscing elit sed do eiusmod tempor incididunt ut labore et dolore magna aliqua

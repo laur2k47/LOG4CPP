@@ -67,6 +67,11 @@ build_target "test_c_dynamic"  "test_c.c"     "$COMPILER_C"   "dynamic"
 build_target "test_cpp_static" "test_cpp.cpp" "$COMPILER_CPP" "static"
 build_target "test_cpp_dynamic" "test_cpp.cpp" "$COMPILER_CPP" "dynamic"
 
+# Build rotation test (C++14 required for std::bind and std::filesystem)
+echo "Building: test_rotation (static linking with file rotation)"
+$COMPILER_CPP $CPPFLAGS -I"$INCLUDE_DIR" "test_rotation.cpp" "$LIB_DIR/liblog4cpp.a" -o "$BUILD_DIR/test_rotation"
+echo "  ✓ Created: $BUILD_DIR/test_rotation"
+
 echo ""
 echo "=== Build Complete ==="
 echo ""
