@@ -152,7 +152,7 @@ Every log message is converted to a `LogEntry` struct containing:
 ### Build Static Library
 
 ```bash
-cd /home/laur2k/workspace/Misc/LOG4CPP
+cd LOG4CPP
 ./build.sh
 ```
 
@@ -568,7 +568,9 @@ LOG4CPP includes a built-in `FileRotatingHandler` class for automatic log file r
 ✓ **C++14 Compatible** - Uses standard C functions (rename, remove)  
 ✓ **Low Overhead** - Only checks size on each write, rotation happens rarely
 
-### Usage Example
+### Usage Example (Simple)
+
+Register a rotating handler with default formatting (full timestamp + level + component + function):
 
 ```cpp
 #include "Logger.hpp"
@@ -577,20 +579,47 @@ LOG4CPP includes a built-in `FileRotatingHandler` class for automatic log file r
 int main() {
     Logger::initialize("MyApp", LogLevel::DEBUG1);
 
-    // Create rotating handler: 10MB max size, keep 3 backups
-    static FileRotatingHandler handler("app.log", 10*1024*1024, 3);
-    Logger::getInstance()->registerHandler(
-        std::bind(&FileRotatingHandler::write, &handler, std::placeholders::_1)
-    );
+    // Register rotating handler: 10MB max size, keep 3 backups
+    registerFileRotatingHandler("app.log", 10*1024*1024, 3);
 
     for (int i = 0; i < 100000; ++i) {
         LOG_CPP_INFO("Message ", i);
-        // When app.log reaches 10MB:
-        // - app.log → app.log.1
-        // - app.log.2 → app.log.3 (if exists)
-        // - app.log.3 → deleted (if exceeds maxBackups=3)
-        // - New empty app.log created
     }
+    // When app.log reaches 10MB:
+    // - app.log → app.log.1
+    // - app.log.2 → app.log.3 (if exists)
+    // - app.log.3 → deleted (if exceeds maxBackups=3)
+    // - New empty app.log created
+
+    return 0;
+}
+```
+
+### Custom Formatters
+
+Use custom formatters to control log format in rotating files:
+
+```cpp
+#include "Logger.hpp"
+#include "FileRotatingHandler.hpp"
+
+int main() {
+    Logger::initialize("MyApp", LogLevel::DEBUG1);
+
+    // Format: [LEVEL] message (compact)
+    auto compactFormat = [](const LogEntry &e) {
+        return "[" + e.level + "] " + e.message;
+    };
+    registerFileRotatingHandler("app.log", 10*1024*1024, 3, compactFormat);
+
+    // Alternative: Message only
+    auto messageOnly = [](const LogEntry &e) {
+        return e.message;
+    };
+    registerFileRotatingHandler("verbose.log", 50*1024*1024, 5, messageOnly);
+
+    LOG_CPP_INFO("Application started");
+    LOG_CPP_ERROR("An error occurred");
 
     return 0;
 }
@@ -598,15 +627,23 @@ int main() {
 
 ### Configuration
 
+Multiple rotating handlers with different settings:
+
 ```cpp
-FileRotatingHandler handler(
-    "logs/app.log",    // File path
-    50*1024*1024,      // Max size: 50 MB
-    5                  // Keep 5 backup files
-);
+// Development: Frequent rotation for quick testing
+registerFileRotatingHandler("dev.log", 1*1024*1024, 2);   // 1 MB max, 2 backups
+
+// Production: Larger files with more history
+registerFileRotatingHandler("prod.log", 500*1024*1024, 7);  // 500 MB max, 7 backups
+
+// Errors only (with custom formatter)
+auto errorFormat = [](const LogEntry &e) {
+    return "[" + e.timestamp + "] " + e.message;
+};
+registerFileRotatingHandler("errors.log", 50*1024*1024, 5, errorFormat);
 ```
 
-Result: `app.log`, `app.log.1`, `app.log.2`, `app.log.3`, `app.log.4`, `app.log.5`
+Result files: `app.log`, `app.log.1`, `app.log.2`, `app.log.3`, etc.
 
 ### Rotation Behavior
 
@@ -646,36 +683,44 @@ Adding file rotation to logging:
 
 ### Best Practices
 
-**1. Set appropriate max size:**
+**1. Choose appropriate max file sizes:**
+
+- **Development:** 1-10 MB for frequent rotation and quick testing
+- **Production:** 100-500 MB to minimize rotation overhead
+- **High-volume services:** 500MB-1GB to reduce I/O spikes
+
+**2. Set backup counts based on retention needs:**
 
 ```cpp
-// Development: Rotate frequently for testing
-FileRotatingHandler dev("dev.log", 1*1024*1024, 2);   // 1 MB
+// Keep 7 days of logs (one rotation per day on 70MB files)
+registerFileRotatingHandler("app.log", 70*1024*1024, 7);
 
-// Production: Larger size to reduce rotation overhead
-FileRotatingHandler prod("prod.log", 500*1024*1024, 7);  // 500 MB, 7 backups
+// Keep 30 days (one rotation per day)
+registerFileRotatingHandler("app.log", 30*1024*1024, 30);
 ```
 
-**2. Combine with level filtering:**
+**3. Use different formatters for different files:**
 
 ```cpp
-// Only log WARNING and above to rotating file
-void filteringHandler(const LogEntry &entry) {
-    if (entry.level == "WARN" || entry.level == "ERROR") {
-        mainHandler.write(entry);  // Pass to rotating handler
-    }
-}
-Logger::getInstance()->registerHandler(filteringHandler);
+// Full detailed logs
+registerFileRotatingHandler("debug.log", 100*1024*1024, 3);
+
+// Compact production logs
+auto compactFmt = [](const LogEntry &e) {
+    return e.timestamp + " [" + e.level + "] " + e.message;
+};
+registerFileRotatingHandler("info.log", 500*1024*1024, 7, compactFmt);
+
+// Errors only
+auto errorsFmt = [](const LogEntry &e) {
+    return e.timestamp + " ERROR: " + e.message;
+};
+registerFileRotatingHandler("errors.log", 50*1024*1024, 30, errorsFmt);
 ```
 
-**3. Monitor rotation in production:**
+**4. Monitor disk space:**
 
-```cpp
-// Periodically check file size
-if (handler.getCurrentSize() > (10*1024*1024)) {  // Near limit
-    LOG_CPP_WARN("Log file approaching rotation threshold");
-}
-```
+Track rotated files to ensure you have adequate disk space for backups.
 
 **File Size Formula:**
 For 100,000 log messages at average 150 characters each:
@@ -786,7 +831,7 @@ export LD_LIBRARY_PATH=/path/to/lib:$LD_LIBRARY_PATH
 Or set it permanently in `.bashrc`:
 
 ```bash
-echo 'export LD_LIBRARY_PATH=/home/laur2k/workspace/Misc/LOG4CPP/lib:$LD_LIBRARY_PATH' >> ~/.bashrc
+echo 'export LD_LIBRARY_PATH=$(pwd)/lib:$LD_LIBRARY_PATH' >> ~/.bashrc
 source ~/.bashrc
 ```
 
@@ -959,16 +1004,14 @@ LOG_CPP_DEBUG1("Won't log");  // Below ERROR level
 **A:** Use the built-in `FileRotatingHandler`:
 
 ```cpp
+#include "Logger.hpp"
 #include "FileRotatingHandler.hpp"
 
 int main() {
     Logger::initialize("MyApp", LogLevel::INFO);
 
-    // Rotate at 10MB, keep 5 backups
-    static FileRotatingHandler rotatingHandler("app.log", 10*1024*1024, 5);
-    Logger::getInstance()->registerHandler(
-        std::bind(&FileRotatingHandler::write, &rotatingHandler, std::placeholders::_1)
-    );
+    // Register rotating handler: 10MB max size, keep 5 backups
+    registerFileRotatingHandler("app.log", 10*1024*1024, 5);
 
     LOG_CPP_INFO("This will be archived when file reaches 10MB");
 

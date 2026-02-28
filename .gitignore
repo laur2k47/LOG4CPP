@@ -46,3 +46,7 @@ docs/_build/
 
 # Test output
 /tmp/log_output.txt
+
+# Log files
+*.log
+*.log.*

@@ -1,14 +1,9 @@
 #pragma once
 
-#include <iostream>
-#include <sstream>
-#include <chrono>
-#include <iomanip>
 #include <string>
 #include <memory>
-#include <vector>
 #include <functional>
-#include <mutex>
+#include <sstream>
 
 enum class LogLevel
 {
@@ -35,179 +30,39 @@ struct LogEntry
 // Output handler interface
 using OutputHandler = std::function<void(const LogEntry &)>;
 
+/**
+ * Logger - Thread-safe singleton logging system with customizable handlers
+ *
+ * Public interface only; implementation details hidden via Pimpl pattern.
+ */
 class Logger
 {
-private:
-    std::string componentName;
-    LogLevel currentLevel;
-    std::vector<OutputHandler> handlers;
-    mutable std::mutex handlersMutex; // Protects handlers vector access
-
-    // Singleton instance and its mutex
-    static Logger *instance;
-    static std::mutex instanceMutex; // Protects singleton initialization
-
-    // Private constructor
-    Logger(const std::string &name, LogLevel level = LogLevel::INFO)
-        : componentName(name), currentLevel(level)
-    {
-        // Register default console handler
-        registerHandler(defaultConsoleHandler);
-    }
-
-    static constexpr const char *levelToString(LogLevel level)
-    {
-        switch (level)
-        {
-        case LogLevel::TRACE:
-            return "TRACE";
-        case LogLevel::DEBUG3:
-            return "DEBUG3";
-        case LogLevel::DEBUG2:
-            return "DEBUG2";
-        case LogLevel::DEBUG1:
-            return "DEBUG1";
-        case LogLevel::INFO:
-            return "INFO";
-        case LogLevel::WARN:
-            return "WARN";
-        case LogLevel::ERROR:
-            return "ERROR";
-        default:
-            return "UNKNOWN";
-        }
-    }
-
-    static std::string getCurrentTimestamp()
-    {
-        auto now = std::chrono::system_clock::now();
-        auto time_t = std::chrono::system_clock::to_time_t(now);
-        auto us_total = std::chrono::duration_cast<std::chrono::microseconds>(now.time_since_epoch()) % 1000000;
-
-        auto ms = us_total.count() / 1000;
-        auto us = us_total.count() % 1000;
-
-        std::ostringstream oss;
-        oss << std::put_time(std::localtime(&time_t), "%Y-%m-%d %H:%M:%S");
-        oss << '.' << ms << std::setfill('0') << std::setw(3) << us;
-        return oss.str();
-    }
-
-    template <typename T>
-    static void formatArg(std::ostringstream &oss, const T &arg)
-    {
-        oss << arg;
-    }
-
-    template <typename T, typename... Args>
-    static void formatArgs(std::ostringstream &oss, const T &arg, const Args &...args)
-    {
-        oss << arg;
-        formatArgs(oss, args...);
-    }
-
-    static void formatArgs(std::ostringstream &)
-    {
-        // Base case: no more arguments
-    }
-
-    void writeLog(LogLevel level, const std::string &function, int lineNumber, const std::string &message)
-    {
-        if (level < currentLevel)
-        {
-            return; // Don't log if below current level
-        }
-
-        LogEntry entry{
-            getCurrentTimestamp(),
-            levelToString(level),
-            componentName,
-            function,
-            lineNumber,
-            message};
-
-        // Call all registered handlers (thread-safe)
-        {
-            std::lock_guard<std::mutex> lock(handlersMutex);
-            for (const auto &handler : handlers)
-            {
-                handler(entry);
-            }
-        }
-    }
-
 public:
     // Default console output handler
-    static void defaultConsoleHandler(const LogEntry &entry)
-    {
-        std::ostringstream funcInfo;
-        funcInfo << entry.function << ":" << entry.lineNumber;
-
-        std::ostringstream logStream;
-        logStream << "[" << entry.timestamp << "]"
-                  << "[" << std::left << std::setw(6) << entry.level << "]"
-                  << "[" << entry.component << "]"
-                  << "[" << std::left << std::setw(20) << funcInfo.str() << "] "
-                  << entry.message;
-        std::cout << logStream.str() << std::endl;
-    }
+    static void defaultConsoleHandler(const LogEntry &entry);
 
     // Singleton getter (thread-safe with double-checked locking)
-    static Logger *getInstance()
-    {
-        if (instance == nullptr)
-        {
-            std::lock_guard<std::mutex> lock(instanceMutex);
-            if (instance == nullptr)
-            {
-                instance = new Logger("Logger");
-            }
-        }
-        return instance;
-    }
+    static Logger *getInstance();
 
     // Initialize singleton with component name and log level (thread-safe)
-    static void initialize(const std::string &name, LogLevel level = LogLevel::INFO)
-    {
-        std::lock_guard<std::mutex> lock(instanceMutex);
-        if (instance == nullptr)
-        {
-            instance = new Logger(name, level);
-        }
-    }
+    static void initialize(const std::string &name, LogLevel level = LogLevel::INFO);
 
     // Register a custom output handler (thread-safe)
-    void registerHandler(OutputHandler handler)
-    {
-        std::lock_guard<std::mutex> lock(handlersMutex);
-        handlers.push_back(handler);
-    }
+    void registerHandler(OutputHandler handler);
 
     // Clear all handlers (thread-safe)
-    void clearHandlers()
-    {
-        std::lock_guard<std::mutex> lock(handlersMutex);
-        handlers.clear();
-    }
+    void clearHandlers();
 
     // Replace all handlers with a new one (thread-safe)
-    void setHandler(OutputHandler handler)
-    {
-        std::lock_guard<std::mutex> lock(handlersMutex);
-        handlers.clear();
-        handlers.push_back(handler);
-    }
+    void setHandler(OutputHandler handler);
 
-    void setLogLevel(LogLevel level)
-    {
-        currentLevel = level;
-    }
+    // Set log level threshold
+    void setLogLevel(LogLevel level);
 
-    LogLevel getLogLevel() const
-    {
-        return currentLevel;
-    }
+    // Get current log level
+    LogLevel getLogLevel() const;
 
+    // Template logging methods
     template <typename... Args>
     void trace(const std::string &function, int lineNumber, const Args &...args)
     {
@@ -263,6 +118,42 @@ public:
         formatArgs(oss, args...);
         writeLog(LogLevel::ERROR, function, lineNumber, oss.str());
     }
+
+    // Destructor
+    ~Logger();
+
+private:
+    // Pimpl: pointer to implementation
+    class Impl;
+    std::unique_ptr<Impl> impl;
+
+    // Private constructor
+    Logger(const std::string &name, LogLevel level);
+
+    // Helper for variadic templates - forward to impl
+    template <typename T>
+    static void formatArg(std::ostringstream &oss, const T &arg)
+    {
+        oss << arg;
+    }
+
+    template <typename T, typename... Args>
+    static void formatArgs(std::ostringstream &oss, const T &arg, const Args &...args)
+    {
+        oss << arg;
+        formatArgs(oss, args...);
+    }
+
+    static void formatArgs(std::ostringstream &)
+    {
+        // Base case: no more arguments
+    }
+
+    // Write log entry - forwards to impl
+    void writeLog(LogLevel level, const std::string &function, int lineNumber, const std::string &message);
+
+    // Singleton instance
+    static Logger *instance;
 };
 
 // Convenience macros for automatic function name and line number

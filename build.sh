@@ -25,6 +25,7 @@ DYNAMIC_LIB="liblog4cpp.so"
 SOURCES=(
     "$SRC_DIR/Logger.cpp"
     "$SRC_DIR/Logger_C.cpp"
+    "$SRC_DIR/FileRotatingHandler.cpp"
 )
 
 # Create lib directory

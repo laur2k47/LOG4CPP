@@ -1,201 +1,79 @@
 #pragma once
 
 #include "Logger.hpp"
-#include <fstream>
 #include <string>
-#include <mutex>
-#include <cstdio>
-#include <sys/stat.h>
+#include <memory>
+#include <functional>
 
 /**
- * FileRotatingHandler - Automatically rotates log files based on size
+ * FileRotatingHandler - Automatically rotates log files based on size with customizable formatting
  *
  * Features:
  * - Automatic file rotation when max size reached
  * - Configurable number of backup files to keep
+ * - Customizable log formatting via formatter callbacks
  * - Thread-safe file operations
  * - Efficient: only rotates on threshold, not per-message
  * - C++14 compatible (no std::filesystem)
  *
- * Example:
- *   FileRotatingHandler handler("app.log", 10*1024*1024);  // 10MB max
- *   Logger::getInstance()->registerHandler(handler);
+ * Examples:
+ *   // Default format (full with timestamp)
+ *   FileRotatingHandler handler("app.log", 10*1024*1024);
+ *
+ *   // Custom format (message only)
+ *   auto msgOnly = [](const LogEntry &e) { return e.message; };
+ *   FileRotatingHandler handler("app.log", 10*1024*1024, 5, msgOnly);
  */
 class FileRotatingHandler
 {
-private:
-    std::string basePath;         // Base log file path: "app.log"
-    size_t maxFileSize;           // Max size before rotation (bytes)
-    int maxBackups;               // Number of backup files to keep (e.g., app.log.1, .2, .3)
-    std::ofstream currentFile;    // Opened file handle
-    size_t currentSize;           // Current file size in bytes
-    mutable std::mutex fileMutex; // Thread-safe file access
-
 public:
+    // Formatter callback type: takes LogEntry, returns formatted string
+    using Formatter = std::function<std::string(const LogEntry &)>;
+
     /**
-     * Constructor
+     * Constructor with default formatter
      * @param path          Base log file path (e.g., "app.log")
      * @param maxSize       Max file size in bytes before rotation (e.g., 10*1024*1024 for 10MB)
      * @param backups       Number of backup files to keep (default: 5)
      */
-    FileRotatingHandler(const std::string &path, size_t maxSize, int backups = 5)
-        : basePath(path), maxFileSize(maxSize), maxBackups(backups), currentSize(0)
-    {
-        openFile();
-    }
-
-    ~FileRotatingHandler()
-    {
-        std::lock_guard<std::mutex> lock(fileMutex);
-        if (currentFile.is_open())
-        {
-            currentFile.close();
-        }
-    }
+    FileRotatingHandler(const std::string &path, size_t maxSize, int backups = 5);
 
     /**
-     * Handler function (compatible with Logger::registerHandler)
-     * Call as: Logger::getInstance()->registerHandler(
-     *     std::bind(&FileRotatingHandler::write, &handler, std::placeholders::_1)
-     * );
+     * Constructor with custom formatter
+     * @param path          Base log file path
+     * @param maxSize       Max file size in bytes before rotation
+     * @param backups       Number of backup files to keep
+     * @param fmt           Custom formatter function
      */
-    void write(const LogEntry &entry)
-    {
-        std::lock_guard<std::mutex> lock(fileMutex);
+    FileRotatingHandler(const std::string &path, size_t maxSize, int backups, Formatter fmt);
 
-        // Format the complete log line
-        std::ostringstream oss;
-        oss << "[" << entry.timestamp << "]"
-            << "[" << std::left << std::setw(6) << entry.level << "]"
-            << "[" << entry.component << "]"
-            << "[" << entry.function << ":" << entry.lineNumber << "] "
-            << entry.message;
-
-        std::string logLine = oss.str() + "\n";
-        size_t logSize = logLine.length();
-
-        // Check if rotation needed
-        if (currentSize + logSize > maxFileSize)
-        {
-            rotate();
-        }
-
-        // Write to file
-        if (currentFile.is_open())
-        {
-            currentFile << logLine;
-            currentFile.flush(); // Flush after each write for durability
-            currentSize += logSize;
-        }
-    }
-
-    /**
-     * Get current log file path
-     */
-    std::string getCurrentPath() const
-    {
-        return basePath;
-    }
-
-    /**
-     * Get current file size in bytes
-     */
-    size_t getCurrentSize() const
-    {
-        std::lock_guard<std::mutex> lock(fileMutex);
-        return currentSize;
-    }
+    ~FileRotatingHandler();
 
 private:
-    /**
-     * Get file size using stat (C++14 compatible)
-     */
-    static size_t getFileSize(const std::string &path)
-    {
-        struct stat statbuf;
-        if (stat(path.c_str(), &statbuf) != 0)
-        {
-            return 0;
-        }
-        return statbuf.st_size;
-    }
+    // Pimpl: pointer to implementation
+    class Impl;
+    std::unique_ptr<Impl> impl;
 
     /**
-     * Check if file exists using stat (C++14 compatible)
+     * Handler function - private, use registerFileRotatingHandler() instead
      */
-    static bool fileExists(const std::string &path)
-    {
-        struct stat statbuf;
-        return stat(path.c_str(), &statbuf) == 0;
-    }
+    void write(const LogEntry &entry);
 
-    void openFile()
-    {
-        std::lock_guard<std::mutex> lock(fileMutex);
-        if (currentFile.is_open())
-        {
-            currentFile.close();
-        }
-
-        // Check if file already exists to get its size
-        currentSize = 0;
-        if (fileExists(basePath))
-        {
-            currentSize = getFileSize(basePath);
-        }
-
-        currentFile.open(basePath, std::ios::app);
-    }
-
-    void rotate()
-    {
-        if (currentFile.is_open())
-        {
-            currentFile.close();
-        }
-
-        try
-        {
-            // Delete oldest backup if we exceed maxBackups
-            std::string oldestPath = basePath + "." + std::to_string(maxBackups);
-            if (fileExists(oldestPath))
-            {
-                std::remove(oldestPath.c_str());
-            }
-
-            // Shift files down: app.log.3 -> app.log.4, app.log.2 -> app.log.3, etc.
-            for (int i = maxBackups - 1; i >= 1; --i)
-            {
-                std::string oldPath = basePath + "." + std::to_string(i);
-                std::string newPath = basePath + "." + std::to_string(i + 1);
-                if (fileExists(oldPath))
-                {
-                    std::rename(oldPath.c_str(), newPath.c_str());
-                }
-            }
-
-            // Rename current to app.log.1
-            std::string backupPath = basePath + ".1";
-            if (fileExists(basePath))
-            {
-                std::rename(basePath.c_str(), backupPath.c_str());
-            }
-        }
-        catch (const std::exception &e)
-        {
-            std::cerr << "Error rotating log files: " << e.what() << "\n";
-        }
-
-        // Open new file
-        currentSize = 0;
-        currentFile.open(basePath, std::ios::app);
-    }
+    // Allow convenience functions to access write()
+    friend void registerFileRotatingHandler(const std::string &path, size_t maxSize, int maxBackups);
+    friend void registerFileRotatingHandler(
+        const std::string &path,
+        size_t maxSize,
+        int maxBackups,
+        FileRotatingHandler::Formatter formatter);
 };
 
-// Convenience function for easy registration
-inline void registerFileRotatingHandler(const std::string &path, size_t maxSize, int maxBackups = 5)
-{
-    static FileRotatingHandler handler(path, maxSize, maxBackups);
-    Logger::getInstance()->registerHandler(
-        std::bind(&FileRotatingHandler::write, &handler, std::placeholders::_1));
-}
+// Convenience function for easy registration with default formatter
+void registerFileRotatingHandler(const std::string &path, size_t maxSize, int maxBackups = 5);
+
+// Convenience function for registration with custom formatter
+void registerFileRotatingHandler(
+    const std::string &path,
+    size_t maxSize,
+    int maxBackups,
+    FileRotatingHandler::Formatter formatter);
